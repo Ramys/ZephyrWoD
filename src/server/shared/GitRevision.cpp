@@ -2,6 +2,7 @@
 //
 //  MILLENIUM-STUDIO
 //  Copyright 2016 Millenium-studio SARL
+//  ZephyrWoD - 2022 Fluxurion
 //  All Rights Reserved.
 //
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,18 +41,18 @@ char const* GitRevision::GetFullDatabase()
     return _FULL_DATABASE;
 }
 
-#define _PACKAGENAME "Firestorm WoDCore"
+#define _PACKAGENAME "Zephyr WoD"
 
 char const* GitRevision::GetFullVersion()
 {
 #if PLATFORM == PLATFORM_WINDOWS
 # ifdef _WIN64
-    return _PACKAGENAME " rev. " VER_PRODUCTVERSION_STR " (Win64, " _BUILD_DIRECTIVE ")";
+    return _PACKAGENAME " rev. " VER_PRODUCTVERSION_STR " (Win64)";
 # else
-    return _PACKAGENAME " rev. " VER_PRODUCTVERSION_STR " (Win32, " _BUILD_DIRECTIVE ")";
+    return _PACKAGENAME " rev. " VER_PRODUCTVERSION_STR " (Win32)";
 # endif
 #else
-    return _PACKAGENAME " rev. " VER_PRODUCTVERSION_STR " (Unix, " _BUILD_DIRECTIVE ")";
+    return _PACKAGENAME " rev. " VER_PRODUCTVERSION_STR " (Unix)";
 #endif
 }
 
