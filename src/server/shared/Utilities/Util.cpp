@@ -523,3 +523,10 @@ void ParallelFor(uint32 p_Start, uint32 p_End, std::function<void(uint32)> p_Fun
             p_Func(l_I);
     #endif
 }
+
+std::string GetAddressString(ACE_INET_Addr const& addr)
+{
+    char buf[ACE_MAX_FULLY_QUALIFIED_NAME_LEN + 16];
+    addr.addr_to_string(buf, ACE_MAX_FULLY_QUALIFIED_NAME_LEN + 16);
+    return buf;
+}

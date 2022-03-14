@@ -726,4 +726,7 @@ inline uint32 ExtractBitMaskBitCount(uint32 p_Value)
 
 void ParallelFor(uint32 p_Start, uint32 p_End, std::function<void(uint32)> p_Func);
 
+/// Transforms ACE_INET_Addr address into string format "dotted_ip:port"
+std::string GetAddressString(ACE_INET_Addr const& addr);
+
 #endif
