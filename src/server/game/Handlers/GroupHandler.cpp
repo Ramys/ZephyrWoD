@@ -658,7 +658,7 @@ void WorldSession::HandleMinimapPingOpcode(WorldPacket& p_RecvData)
     uint8        l_PartyIndex;
     G3D::Vector2 l_Position;
 
-    p_RecvData.ReadVector2(l_Position);
+    //p_RecvData.ReadVector2(l_Position); TODO
     p_RecvData >> l_PartyIndex;
 
     uint64 l_Sender = GetPlayer()->GetGUID();
@@ -666,7 +666,7 @@ void WorldSession::HandleMinimapPingOpcode(WorldPacket& p_RecvData)
 
     WorldPacket l_Data(SMSG_MINIMAP_PING, (16 + 4 + 4));
     l_Data.appendPackGUID(l_Sender);
-    l_Data.WriteVector2(l_Position);
+    // l_Data.WriteVector2(l_Position); TODO
 
     GetPlayer()->GetGroup()->BroadcastPacket(&l_Data, true, -1, l_Sender);
 }

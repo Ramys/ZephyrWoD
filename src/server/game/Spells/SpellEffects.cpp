@@ -5577,7 +5577,7 @@ void Spell::EffectDismissPet(SpellEffIndex p_EffIndex)
 
     WorldPacket l_Data(SMSG_PET_DISMISS_SOUND);
     l_Data << uint32(l_Pet->GetDisplayId());
-    l_Data.WriteVector3(l_PetDismissPosition);
+    // l_Data.WriteVector3(l_PetDismissPosition); TODO
     l_Pet->GetOwner()->GetSession()->SendPacket(&l_Data);
 
     ExecuteLogEffectUnsummonObject(p_EffIndex, l_Pet);

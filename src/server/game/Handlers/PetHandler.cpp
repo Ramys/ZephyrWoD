@@ -54,7 +54,7 @@ void WorldSession::HandlePetAction(WorldPacket & p_RecvPacket)
     p_RecvPacket.readPackGUID(l_PetGUID);           ///< PetGUID
     l_Action = p_RecvPacket.read<uint32>();         ///< Action
     p_RecvPacket.readPackGUID(l_TargetGUID);        ///< TargetGUID
-    p_RecvPacket.ReadVector3(l_ActionPosition);     ///< ActionPosition
+    // p_RecvPacket.ReadVector3(l_ActionPosition);     ///< ActionPosition TODO
 
 
     uint32 l_SpellID = UNIT_ACTION_BUTTON_ACTION(l_Action);

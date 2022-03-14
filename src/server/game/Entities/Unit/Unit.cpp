@@ -18586,10 +18586,12 @@ void Unit::PlayOrphanSpellVisual(G3D::Vector3 p_Source, G3D::Vector3 p_Orientati
 {
     WorldPacket l_Data(Opcodes::SMSG_PLAY_ORPHAN_SPELL_VISUAL, 100);
 
+    /* TODO
     l_Data.WriteVector3(p_Source);
     l_Data.WriteVector3(p_Orientation);
     l_Data.WriteVector3(p_Target);
     l_Data.appendPackGUID(p_TargetGuid);
+    */
 
     l_Data << int32(p_Visual);
     l_Data << float(p_TravelSpeed);

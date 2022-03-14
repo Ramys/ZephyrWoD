@@ -873,9 +873,11 @@ class debug_commandscript: public CommandScript
             G3D::Vector3 l_Dest(l_Target->m_positionX, l_Target->m_positionY, l_Target->m_positionZ);
             G3D::Vector3 l_Orientation (0.0f, 0.0f, 0.0f);
 
+            /* TODO
             l_Data.WriteVector3(l_Source);
             l_Data.WriteVector3(l_Orientation);
             l_Data.WriteVector3(l_Dest);
+            */
             l_Data.appendPackGUID(0);
 
             l_Data << int32(l_ID);

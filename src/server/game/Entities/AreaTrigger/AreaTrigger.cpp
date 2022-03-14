@@ -550,11 +550,13 @@ void AreaTrigger::SendAreaTriggerRePath(uint32 p_TimeToTarget, uint32 p_OldTime)
     l_Data.appendPackGUID(GetGUID());
     l_Data << uint32(p_TimeToTarget);
     l_Data << uint32(p_OldTime);
-    l_Data << uint32(l_PointCount);
+    l_Data << uint32(l_PointCount); 
+    /* TODO
     l_Data.WriteVector3(l_ActualPos);
     l_Data.WriteVector3(l_ActualPos);
     l_Data.WriteVector3(l_NewDest);
     l_Data.WriteVector3(l_NewDest);
+    */
     SendMessageToSetInRange(&l_Data, GetMap()->GetVisibilityRange(), false);
 }
 
