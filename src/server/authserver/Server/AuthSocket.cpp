@@ -1,10 +1,11 @@
 /*
- * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2009 MaNGOS <http://getmangos.com/>
+ * Copyright (C) 2011-2016 Project SkyFire <http://www.projectskyfire.org/>
+ * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2005-2016 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 2 of the License, or (at your
+ * Free Software Foundation; either version 3 of the License, or (at your
  * option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -30,9 +31,6 @@
 #include "TOTP.h"
 #include "SHA1.h"
 #include "openssl/crypto.h"
-#include "ace/INET_Addr.h"
-#include "ace/SOCK_Connector.h"
-#include "ace/SOCK_Stream.h"
 
 #define ChunkSize 2048
 
@@ -42,13 +40,18 @@ enum eAuthCmd
     AUTH_LOGON_PROOF                             = 0x01,
     AUTH_RECONNECT_CHALLENGE                     = 0x02,
     AUTH_RECONNECT_PROOF                         = 0x03,
-    AUTH_RECEIVE_AUTHENTICATOR_PIN               = 0x06,
     REALM_LIST                                   = 0x10,
     XFER_INITIATE                                = 0x30,
     XFER_DATA                                    = 0x31,
     XFER_ACCEPT                                  = 0x32,
     XFER_RESUME                                  = 0x33,
     XFER_CANCEL                                  = 0x34
+};
+
+enum eStatus
+{
+    STATUS_CONNECTED                             = 0,
+    STATUS_AUTHED
 };
 
 // GCC have alternative #pragma pack(N) syntax and old gcc version not support pack(push, N), also any gcc version not support it at some paltform
@@ -179,14 +182,14 @@ private:
 
 const AuthHandler table[] =
 {
-    { AUTH_LOGON_CHALLENGE,     STATUS_CHALLENGE,       &AuthSocket::_HandleLogonChallenge    },
-    { AUTH_LOGON_PROOF,         STATUS_LOGON_PROOF,     &AuthSocket::_HandleLogonProof        },
-    { AUTH_RECONNECT_CHALLENGE, STATUS_CHALLENGE,       &AuthSocket::_HandleReconnectChallenge},
-    { AUTH_RECONNECT_PROOF,     STATUS_RECONNECT_PROOF, &AuthSocket::_HandleReconnectProof    },
-    { REALM_LIST,               STATUS_AUTHED,          &AuthSocket::_HandleRealmList         },
-    { XFER_ACCEPT,              STATUS_ANY,             &AuthSocket::_HandleXferAccept        },
-    { XFER_RESUME,              STATUS_ANY,             &AuthSocket::_HandleXferResume        },
-    { XFER_CANCEL,              STATUS_ANY,             &AuthSocket::_HandleXferCancel        }
+    { AUTH_LOGON_CHALLENGE,     STATUS_CONNECTED, &AuthSocket::_HandleLogonChallenge    },
+    { AUTH_LOGON_PROOF,         STATUS_CONNECTED, &AuthSocket::_HandleLogonProof        },
+    { AUTH_RECONNECT_CHALLENGE, STATUS_CONNECTED, &AuthSocket::_HandleReconnectChallenge},
+    { AUTH_RECONNECT_PROOF,     STATUS_CONNECTED, &AuthSocket::_HandleReconnectProof    },
+    { REALM_LIST,               STATUS_AUTHED,    &AuthSocket::_HandleRealmList         },
+    { XFER_ACCEPT,              STATUS_CONNECTED, &AuthSocket::_HandleXferAccept        },
+    { XFER_RESUME,              STATUS_CONNECTED, &AuthSocket::_HandleXferResume        },
+    { XFER_CANCEL,              STATUS_CONNECTED, &AuthSocket::_HandleXferCancel        }
 };
 
 #define AUTH_TOTAL_COMMANDS 8
@@ -196,16 +199,17 @@ Patcher PatchesCache;
 
 // Constructor - set the N and g values for SRP6
 AuthSocket::AuthSocket(RealmSocket& socket) :
-    pPatch(NULL), socket_(socket), _status(STATUS_CHALLENGE), _build(0)
+    pPatch(NULL), socket_(socket), _authed(false), _build(0),
+    _expversion(0), _accountSecurityLevel(SEC_PLAYER)
 {
     N.SetHexStr("894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7");
     g.SetDword(7);
 }
 
 // Close patch file descriptor before leaving
-AuthSocket::~AuthSocket(void) {}
+AuthSocket::~AuthSocket(void) { }
 
-// Accept the connection and set the s random value for SRP6
+// Accept the connection
 void AuthSocket::OnAccept(void)
 {
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' Accepting connection", socket().getRemoteAddress().c_str(), socket().getRemotePort());
@@ -219,13 +223,18 @@ void AuthSocket::OnClose(void)
 // Read the packet from the client
 void AuthSocket::OnRead()
 {
-    #define MAX_AUTH_LOGON_CHALLENGES_IN_A_ROW 3
-    uint32 challengesInARow = 0;
+#define MAX_AUTH_LOGON_CHALLENGES_IN_A_ROW 3
+	uint32 challengesInARow = 0;
+
+#define MAX_AUTH_GET_REALM_LIST 10
+	uint32 challengesInARowRealmList = 0;
+
     uint8 _cmd;
     while (1)
     {
         if (!socket().recv_soft((char *)&_cmd, 1))
             return;
+
         if (_cmd == AUTH_LOGON_CHALLENGE)
         {
             ++challengesInARow;
@@ -236,13 +245,22 @@ void AuthSocket::OnRead()
                 return;
             }
         }
+		else if (_cmd == REALM_LIST) {
+			challengesInARowRealmList++;
+			if (challengesInARowRealmList == MAX_AUTH_GET_REALM_LIST)
+			{
+				sLog->outDebug(LOG_FILTER_AUTHSERVER, "Got %u REALMLIST in a row from '%s', possible ongoing DoS", challengesInARowRealmList, socket().getRemoteAddress().c_str());
+				socket().shutdown();
+				return;
+			}
+		}
 
         size_t i;
 
         // Circle through known commands and call the correct command handler
         for (i = 0; i < AUTH_TOTAL_COMMANDS; ++i)
         {
-            if ((uint8)table[i].cmd == _cmd && (table[i].status == _status || table[i].status == STATUS_ANY))
+            if ((uint8)table[i].cmd == _cmd && (table[i].status == STATUS_CONNECTED || (_authed && table[i].status == STATUS_AUTHED)))
             {
                 sLog->outDebug(LOG_FILTER_AUTHSERVER, "Got data for cmd %u recv length %u", (uint32)_cmd, (uint32)socket().recv_len());
 
@@ -290,7 +308,7 @@ void AuthSocket::_SetVSFields(const std::string& rI)
     v = g.ModExp(x, N);
 
     // No SQL injection (username escaped)
-    const char *v_hex, *s_hex;
+    char *v_hex, *s_hex;
     v_hex = v.AsHexStr();
     s_hex = s.AsHexStr();
 
@@ -300,15 +318,13 @@ void AuthSocket::_SetVSFields(const std::string& rI)
     stmt->setString(2, _login);
     LoginDatabase.Execute(stmt);
 
-    OPENSSL_free((void*)v_hex);
-    OPENSSL_free((void*)s_hex);
+    OPENSSL_free(v_hex);
+    OPENSSL_free(s_hex);
 }
 
 // Logon Challenge command handler
 bool AuthSocket::_HandleLogonChallenge()
 {
-    _status = STATUS_CLOSED;
-
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "Entering _HandleLogonChallenge");
     if (socket().recv_len() < sizeof(sAuthLogonChallenge_C))
         return false;
@@ -320,7 +336,7 @@ bool AuthSocket::_HandleLogonChallenge()
     socket().recv((char *)&buf[0], 4);
 
 #if TRINITY_ENDIAN == TRINITY_BIGENDIAN
-    EndianConvert(*((uint16*)(buf[0])));
+    EndianConvertPtr<uint16>(&buf[0]);
 #endif
 
     uint16 remaining = ((sAuthLogonChallenge_C *)&buf[0])->size;
@@ -339,14 +355,14 @@ bool AuthSocket::_HandleLogonChallenge()
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] got full packet, %#04x bytes", ch->size);
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] name(%d): '%s'", ch->I_len, ch->I);
 
+#if TRINITY_ENDIAN == TRINITY_BIGENDIAN
     // BigEndian code, nop in little endian case
     // size already converted
-#if TRINITY_ENDIAN == TRINITY_BIGENDIAN
-    EndianConvert(*((uint32*)(&ch->gamename[0])));
+    EndianConvertPtr<uint32>(&ch->gamename[0]);
     EndianConvert(ch->build);
-    EndianConvert(*((uint32*)(&ch->platform[0])));
-    EndianConvert(*((uint32*)(&ch->os[0])));
-    EndianConvert(*((uint32*)(&ch->country[0])));
+    EndianConvertPtr<uint32>(&ch->platform[0]);
+    EndianConvertPtr<uint32>(&ch->os[0]);
+    EndianConvertPtr<uint32>(&ch->country[0]);
     EndianConvert(ch->timezone_bias);
     EndianConvert(ch->ip);
 #endif
@@ -355,6 +371,7 @@ bool AuthSocket::_HandleLogonChallenge()
 
     _login = (const char*)ch->I;
     _build = ch->build;
+    _expversion = uint8(AuthHelper::IsPostBCAcceptedClientBuild(_build) ? POST_BC_EXP_FLAG : (AuthHelper::IsPreBCAcceptedClientBuild(_build) ? PRE_BC_EXP_FLAG : NO_VALID_EXP_FLAG));
     _os = (const char*)ch->os;
 
     if (_os.size() > 4)
@@ -369,14 +386,14 @@ bool AuthSocket::_HandleLogonChallenge()
     // Verify that this IP is not in the ip_banned table
     LoginDatabase.Execute(LoginDatabase.GetPreparedStatement(LOGIN_DEL_EXPIRED_IP_BANS));
 
-    const std::string& ip_address = socket().getRemoteAddress();
-    PreparedStatement *stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_IP_BANNED);
+    std::string const& ip_address = socket().getRemoteAddress();
+    PreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_IP_BANNED);
     stmt->setString(0, ip_address);
     PreparedQueryResult result = LoginDatabase.Query(stmt);
     if (result)
     {
-        pkt << (uint8)WOW_FAIL_BANNED;
-        sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] Banned ip tries to login!",socket().getRemoteAddress().c_str(), socket().getRemotePort());
+        pkt << uint8(WOW_FAIL_BANNED);
+        sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] Banned ip tries to login!", socket().getRemoteAddress().c_str(), socket().getRemotePort());
     }
     else
     {
@@ -391,29 +408,25 @@ bool AuthSocket::_HandleLogonChallenge()
             Field* fields = res2->Fetch();
 
             // If the IP is 'locked', check that the player comes indeed from the correct IP address
-            bool locked = false;
             if (fields[2].GetUInt8() == 1)                  // if ip is locked
             {
-                sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] Account '%s' is locked to IP - '%s'", _login.c_str(), fields[3].GetCString());
+                sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] Account '%s' is locked to IP - '%s'", _login.c_str(), fields[4].GetCString());
                 sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] Player address is '%s'", ip_address.c_str());
 
-                if (strcmp(fields[3].GetCString(), ip_address.c_str()))
+                if (strcmp(fields[3].GetCString(), ip_address.c_str()) != 0)
                 {
                     sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] Account IP differs");
-                    pkt << uint8(WOW_FAIL_SUSPENDED);
-                    locked = true;
+                    pkt << uint8(WOW_FAIL_LOCKED_ENFORCED);
                 }
                 else
                     sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] Account IP matches");
             }
             else
+            {
                 sLog->outDebug(LOG_FILTER_AUTHSERVER, "[AuthChallenge] Account '%s' is not locked to ip", _login.c_str());
 
-            if (!locked)
-            {
                 //set expired bans to inactive
-                LoginDatabase.Execute(LoginDatabase.GetPreparedStatement(LOGIN_UPD_EXPIRED_ACCOUNT_BANS));
-                LoginDatabase.Execute(LoginDatabase.GetPreparedStatement(LOGIN_UPD_ACCOUNT_PREMIUM));
+                LoginDatabase.DirectExecute(LoginDatabase.GetPreparedStatement(LOGIN_UPD_EXPIRED_ACCOUNT_BANS));
 
                 // If the account is banned, reject the logon attempt
                 stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_BANNED);
@@ -423,12 +436,12 @@ bool AuthSocket::_HandleLogonChallenge()
                 {
                     if ((*banresult)[0].GetUInt32() == (*banresult)[1].GetUInt32())
                     {
-                        pkt << (uint8)WOW_FAIL_BANNED;
+                        pkt << uint8(WOW_FAIL_BANNED);
                         sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] Banned account %s tried to login!", socket().getRemoteAddress().c_str(), socket().getRemotePort(), _login.c_str ());
                     }
                     else
                     {
-                        pkt << (uint8)WOW_FAIL_SUSPENDED;
+                        pkt << uint8(WOW_FAIL_SUSPENDED);
                         sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] Temporarily banned account %s tried to login!", socket().getRemoteAddress().c_str(), socket().getRemotePort(), _login.c_str ());
                     }
                 }
@@ -462,16 +475,10 @@ bool AuthSocket::_HandleLogonChallenge()
                     unk3.SetRand(16 * 8);
 
                     // Fill the response packet with the result
-                    // If the client has no valid version
-                    if (!AuthHelper::IsAcceptedClientBuild(_build))
-                    {
-                        pkt << uint8(WOW_FAIL_VERSION_INVALID);
-                    }
-                    else
-                    {
+                    if (AuthHelper::IsAcceptedClientBuild(_build))
                         pkt << uint8(WOW_SUCCESS);
-                        _status = STATUS_LOGON_PROOF;
-                    }
+                    else
+                        pkt << uint8(WOW_FAIL_VERSION_INVALID);
 
                     // B may be calculated < 32B so we force minimal length to 32B
                     pkt.append(B.AsByteArray(32), 32);      // 32 bytes
@@ -484,9 +491,9 @@ bool AuthSocket::_HandleLogonChallenge()
                     uint8 securityFlags = 0;
 
                     // Check if token is used
-                    _tokenKey = fields[7].GetString();
+                    /*_tokenKey = fields[7].GetString();
                     if (!_tokenKey.empty())
-                        securityFlags = 4;
+                        securityFlags = 4;*/
 
                     pkt << uint8(securityFlags);            // security flags (0x0...0x04)
 
@@ -532,8 +539,6 @@ bool AuthSocket::_HandleLogonChallenge()
 // Logon Proof command handler
 bool AuthSocket::_HandleLogonProof()
 {
-    _status = STATUS_CLOSED;
-
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "Entering _HandleLogonProof");
     // Read the packet
     sAuthLogonProof_C lp;
@@ -541,13 +546,22 @@ bool AuthSocket::_HandleLogonProof()
     if (!socket().recv((char *)&lp, sizeof(sAuthLogonProof_C)))
         return false;
 
+    // If the client has no valid version
+    if (_expversion == NO_VALID_EXP_FLAG)
+    {
+        // Check if we have the appropriate patch on the disk
+        sLog->outDebug(LOG_FILTER_NETWORKIO, "Client with invalid version, patching is not implemented");
+        socket().shutdown();
+        return true;
+    }
+
     // Continue the SRP6 calculation based on data received from the client
     BigNumber A;
 
     A.SetBinary(lp.A, 32);
 
     // SRP safeguard: abort if A == 0
-    if ((A % N).isZero())
+    if (A.isZero())
     {
         socket().shutdown();
         return true;
@@ -632,19 +646,7 @@ bool AuthSocket::_HandleLogonProof()
         stmt->setUInt32(2, GetLocaleByName(_localizationName));
         stmt->setString(3, _os);
         stmt->setString(4, _login);
-        LoginDatabase.Execute(stmt);
-
-        /*QueryResult AccountIdResult = LoginDatabase.PQuery("SELECT id FROM account WHERE username = '%s'", _login.c_str());
-
-        if (AccountIdResult)
-        {
-            uint32 accountid = (AccountIdResult->Fetch())[0].GetUInt32();
-
-            stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_LOG_IP);
-            stmt->setUInt32(0, accountid);
-            stmt->setString(1, socket().getRemoteAddress().c_str());
-            LoginDatabase.Execute(stmt);
-        }*/
+        LoginDatabase.DirectExecute(stmt);
 
         OPENSSL_free((void*)K_hex);
 
@@ -663,7 +665,7 @@ bool AuthSocket::_HandleLogonProof()
             socket().recv(token, size);
             unsigned int validToken = TOTP::GenerateToken(_tokenKey.c_str());
             unsigned int incomingToken = atoi(token);
-            delete[] token;
+            delete [] token;
             if (validToken != incomingToken)
             {
                 char data[] = { AUTH_LOGON_PROOF, WOW_FAIL_UNKNOWN_ACCOUNT, 3, 0 };
@@ -672,16 +674,28 @@ bool AuthSocket::_HandleLogonProof()
             }
         }
 
-        sAuthLogonProof_S proof;
-        memcpy(proof.M2, sha.GetDigest(), 20);
-        proof.cmd = AUTH_LOGON_PROOF;
-        proof.error = 0;
-        proof.unk1 = 0x00800000;    // Accountflags. 0x01 = GM, 0x08 = Trial, 0x00800000 = Pro pass (arena tournament)
-        proof.unk2 = 0x00;          // SurveyId
-        proof.unk3 = 0x00;
-        socket().send((char *)&proof, sizeof(proof));
+        if (_expversion & POST_BC_EXP_FLAG)                 // 2.x and 3.x clients
+        {
+            sAuthLogonProof_S proof;
+            memcpy(proof.M2, sha.GetDigest(), 20);
+            proof.cmd = AUTH_LOGON_PROOF;
+            proof.error = 0;
+            proof.unk1 = 0x00800000;    // Accountflags. 0x01 = GM, 0x08 = Trial, 0x00800000 = Pro pass (arena tournament)
+            proof.unk2 = 0x00;          // SurveyId
+            proof.unk3 = 0x00;
+            socket().send((char *)&proof, sizeof(proof));
+        }
+        else
+        {
+            sAuthLogonProof_S_Old proof;
+            memcpy(proof.M2, sha.GetDigest(), 20);
+            proof.cmd = AUTH_LOGON_PROOF;
+            proof.error = 0;
+            proof.unk2 = 0x00;
+            socket().send((char *)&proof, sizeof(proof));
+        }
 
-        _status = STATUS_AUTHED;
+        _authed = true;
     }
     else
     {
@@ -689,6 +703,51 @@ bool AuthSocket::_HandleLogonProof()
         socket().send(data, sizeof(data));
 
         sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] account %s tried to login with invalid password!", socket().getRemoteAddress().c_str(), socket().getRemotePort(), _login.c_str ());
+
+        uint32 MaxWrongPassCount = ConfigMgr::GetIntDefault("WrongPass.MaxCount", 0);
+        if (MaxWrongPassCount > 0)
+        {
+            //Increment number of failed logins by one and if it reaches the limit temporarily ban that account or IP
+            PreparedStatement *stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_FAILEDLOGINS);
+            stmt->setString(0, _login);
+            LoginDatabase.Execute(stmt);
+
+            stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_FAILEDLOGINS);
+            stmt->setString(0, _login);
+
+            if (PreparedQueryResult loginfail = LoginDatabase.Query(stmt))
+            {
+                uint32 failed_logins = (*loginfail)[1].GetUInt32();
+
+                if (failed_logins >= MaxWrongPassCount)
+                {
+                    uint32 WrongPassBanTime = ConfigMgr::GetIntDefault("WrongPass.BanTime", 600);
+                    bool WrongPassBanType = ConfigMgr::GetBoolDefault("WrongPass.BanType", false);
+
+                    if (WrongPassBanType)
+                    {
+                        uint32 acc_id = (*loginfail)[0].GetUInt32();
+                        stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_AUTO_BANNED);
+                        stmt->setUInt32(0, acc_id);
+                        stmt->setUInt32(1, WrongPassBanTime);
+                        LoginDatabase.Execute(stmt);
+
+                        sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] account %s got banned for '%u' seconds because it failed to authenticate '%u' times",
+                            socket().getRemoteAddress().c_str(), socket().getRemotePort(), _login.c_str(), WrongPassBanTime, failed_logins);
+                    }
+                    else
+                    {
+                        stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_IP_AUTO_BANNED);
+                        stmt->setString(0, socket().getRemoteAddress());
+                        stmt->setUInt32(1, WrongPassBanTime);
+                        LoginDatabase.Execute(stmt);
+
+                        sLog->outDebug(LOG_FILTER_AUTHSERVER, "'%s:%d' [AuthChallenge] IP %s got banned for '%u' seconds because account %s failed to authenticate '%u' times",
+                            socket().getRemoteAddress().c_str(), socket().getRemotePort(), socket().getRemoteAddress().c_str(), WrongPassBanTime, _login.c_str(), failed_logins);
+                    }
+                }
+            }
+        }
     }
 
     return true;
@@ -697,8 +756,6 @@ bool AuthSocket::_HandleLogonProof()
 // Reconnect Challenge command handler
 bool AuthSocket::_HandleReconnectChallenge()
 {
-    _status = STATUS_CLOSED;
-
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "Entering _HandleReconnectChallenge");
     if (socket().recv_len() < sizeof(sAuthLogonChallenge_C))
         return false;
@@ -710,7 +767,7 @@ bool AuthSocket::_HandleReconnectChallenge()
     socket().recv((char *)&buf[0], 4);
 
 #if TRINITY_ENDIAN == TRINITY_BIGENDIAN
-    EndianConvert(*((uint16*)(buf[0])));
+    EndianConvertPtr<uint16>(&buf[0]);
 #endif
 
     uint16 remaining = ((sAuthLogonChallenge_C *)&buf[0])->size;
@@ -745,6 +802,7 @@ bool AuthSocket::_HandleReconnectChallenge()
 
     // Reinitialize build, expansion and the account securitylevel
     _build = ch->build;
+    _expversion = uint8(AuthHelper::IsPostBCAcceptedClientBuild(_build) ? POST_BC_EXP_FLAG : (AuthHelper::IsPreBCAcceptedClientBuild(_build) ? PRE_BC_EXP_FLAG : NO_VALID_EXP_FLAG));
     _os = (const char*)ch->os;
 
     if (_os.size() > 4)
@@ -764,7 +822,6 @@ bool AuthSocket::_HandleReconnectChallenge()
     pkt << uint8(AUTH_RECONNECT_CHALLENGE);
     pkt << uint8(0x00);
     _reconnectProof.SetRand(16 * 8);
-    _status = STATUS_RECONNECT_PROOF;
     pkt.append(_reconnectProof.AsByteArray(16), 16);        // 16 bytes random
     pkt << uint64(0x00) << uint64(0x00);                    // 16 bytes zeros
     socket().send((char const*)pkt.contents(), pkt.size());
@@ -774,8 +831,6 @@ bool AuthSocket::_HandleReconnectChallenge()
 // Reconnect Proof command handler
 bool AuthSocket::_HandleReconnectProof()
 {
-    _status = STATUS_CLOSED;
-
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "Entering _HandleReconnectProof");
     // Read the packet
     sAuthReconnectProof_C lp;
@@ -802,7 +857,7 @@ bool AuthSocket::_HandleReconnectProof()
         pkt << uint8(0x00);
         pkt << uint16(0x00);                               // 2 bytes zeros
         socket().send((char const*)pkt.contents(), pkt.size());
-        _status = STATUS_AUTHED;
+        _authed = true;
         return true;
     }
     else
@@ -811,6 +866,11 @@ bool AuthSocket::_HandleReconnectProof()
         socket().shutdown();
         return false;
     }
+}
+
+ACE_INET_Addr const& AuthSocket::GetAddressForClient(Realm const& realm, ACE_INET_Addr const& clientAddr)
+{
+    return realm.ExternalAddress;
 }
 
 // Realm List command handler
@@ -840,68 +900,101 @@ bool AuthSocket::_HandleRealmList()
     // Update realm list if need
     sRealmList->UpdateIfNeed();
 
+    ACE_INET_Addr clientAddr;
+    socket().peer().get_remote_addr(clientAddr);
+
     // Circle through realms in the RealmList and construct the return packet (including # of user characters in each realm)
     ByteBuffer pkt;
 
     size_t RealmListSize = 0;
     for (RealmList::RealmMap::const_iterator i = sRealmList->begin(); i != sRealmList->end(); ++i)
     {
+        const Realm &realm = i->second;
         // don't work with realms which not compatible with the client
-        if (i->second.gamebuild != _build)
-            continue;
-
-        uint8 AmountOfCharacters;
+        bool okBuild = ((_expversion & POST_BC_EXP_FLAG) && realm.gamebuild == _build) || ((_expversion & PRE_BC_EXP_FLAG) && !AuthHelper::IsPreBCAcceptedClientBuild(realm.gamebuild));
 
         // No SQL injection. id of realm is controlled by the database.
+        uint32 flag = realm.flag;
+        RealmBuildInfo const* buildInfo = AuthHelper::GetBuildInfo(realm.gamebuild);
+        if (!okBuild)
+        {
+            if (!buildInfo)
+                continue;
+
+            flag |= REALM_FLAG_OFFLINE | REALM_FLAG_SPECIFYBUILD;   // tell the client what build the realm is for
+        }
+
+        if (!buildInfo)
+            flag &= ~REALM_FLAG_SPECIFYBUILD;
+
+        std::string name = i->first;
+        if (_expversion & PRE_BC_EXP_FLAG && flag & REALM_FLAG_SPECIFYBUILD)
+        {
+            std::ostringstream ss;
+            ss << name << " (" << buildInfo->MajorVersion << '.' << buildInfo->MinorVersion << '.' << buildInfo->BugfixVersion << ')';
+            name = ss.str();
+        }
+
+        // We don't need the port number from which client connects with but the realm's port
+        clientAddr.set_port_number(realm.ExternalAddress.get_port_number());
+
+        uint8 lock = (realm.allowedSecurityLevel > _accountSecurityLevel) ? 1 : 0;
+
+        uint8 AmountOfCharacters = 0;
         stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_NUM_CHARS_ON_REALM);
-        stmt->setUInt32(0, i->second.m_ID);
+        stmt->setUInt32(0, realm.m_ID);
         stmt->setUInt32(1, id);
         result = LoginDatabase.Query(stmt);
         if (result)
             AmountOfCharacters = (*result)[0].GetUInt8();
-        else
-            AmountOfCharacters = 0;
 
-        uint8 lock = (i->second.allowedSecurityLevel > _accountSecurityLevel) ? 1 : 0;
-
-        pkt << i->second.icon;                              // realm type
-        pkt << lock;                                    // if 1, then realm locked
-        pkt << uint8(i->second.flag);                       // RealmFlags
-        pkt << i->first;
-        //std::string ip = sRealmList->firewallSize() ? sRealmList->GetRandomFirewall() : "localhost";
-        //ip += ":";
-        //ip += i->second.address;
-        //pkt << ip;
-        pkt << i->second.address;
-        pkt << i->second.populationLevel;
+        pkt << realm.icon;                                  // realm type
+        if (_expversion & POST_BC_EXP_FLAG)                 // only 2.x and 3.x clients
+            pkt << lock;                                    // if 1, then realm locked
+        pkt << uint8(flag);                                 // RealmFlags
+        pkt << name;
+        pkt << GetAddressString(GetAddressForClient(realm, clientAddr));
+        pkt << realm.populationLevel;
         pkt << AmountOfCharacters;
-        pkt << i->second.timezone;                          // realm category
-        pkt << uint8(0x2C);                             // unk, may be realm number/id?
+        pkt << realm.timezone;                              // realm category
+        if (_expversion & POST_BC_EXP_FLAG)                 // 2.x and 3.x clients
+            pkt << uint8(0x2C);                             // unk, may be realm number/id?
+        else
+            pkt << uint8(0x0);                              // 1.12.1 and 1.12.2 clients
 
-        if (i->second.flag & REALM_FLAG_SPECIFYBUILD)
+        if (_expversion & POST_BC_EXP_FLAG && flag & REALM_FLAG_SPECIFYBUILD)
         {
-            // TODO: Make this customizable
-            pkt << uint8(3);
-            pkt << uint8(3);
-            pkt << uint8(5);
-            pkt << uint16(12340);
+            pkt << uint8(buildInfo->MajorVersion);
+            pkt << uint8(buildInfo->MinorVersion);
+            pkt << uint8(buildInfo->BugfixVersion);
+            pkt << uint16(buildInfo->Build);
         }
 
         ++RealmListSize;
     }
 
-    pkt << uint8(0x10);
-    pkt << uint8(0x00);
-
+    if (_expversion & POST_BC_EXP_FLAG)                     // 2.x and 3.x clients
+    {
+        pkt << uint8(0x10);
+        pkt << uint8(0x00);
+    }
+    else                                                    // 1.12.1 and 1.12.2 clients
+    {
+        pkt << uint8(0x00);
+        pkt << uint8(0x02);
+    }
 
     // make a ByteBuffer which stores the RealmList's size
     ByteBuffer RealmListSizeBuffer;
-    RealmListSizeBuffer << (uint32)0;
-    RealmListSizeBuffer << uint16(RealmListSize);
+    RealmListSizeBuffer << uint32(0);
+    if (_expversion & POST_BC_EXP_FLAG)                     // only 2.x and 3.x clients
+        RealmListSizeBuffer << uint16(RealmListSize);
+    else
+        RealmListSizeBuffer << uint32(RealmListSize);
 
     ByteBuffer hdr;
     hdr << uint8(REALM_LIST);
-    hdr << uint16((pkt.size() + RealmListSizeBuffer.size()));
+    hdr << uint16(pkt.size() + RealmListSizeBuffer.size());
     hdr.append(RealmListSizeBuffer);                        // append RealmList's size buffer
     hdr.append(pkt);                                        // append realms in the realmlist
 
@@ -915,7 +1008,7 @@ bool AuthSocket::_HandleXferResume()
 {
     sLog->outDebug(LOG_FILTER_AUTHSERVER, "Entering _HandleXferResume");
     // Check packet length and patch existence
-    if (socket().recv_len() < 9 || !pPatch)
+    if (socket().recv_len() < 9 || !pPatch) // FIXME: pPatch is never used
     {
         sLog->outError(LOG_FILTER_AUTHSERVER, "Error while resuming patch transfer (wrong packet)");
         return false;
@@ -969,7 +1062,7 @@ PatcherRunnable::PatcherRunnable(class AuthSocket* as)
 }
 
 // Send content of patch file to the client
-void PatcherRunnable::run() {}
+void PatcherRunnable::run() { }
 
 // Preload MD5 hashes of existing patch files on server
 #ifndef _WIN32
