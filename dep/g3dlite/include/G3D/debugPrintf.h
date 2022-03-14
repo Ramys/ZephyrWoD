@@ -13,10 +13,10 @@
 #ifndef G3D_DEBUGPRINTF_H
 #define G3D_DEBUGPRINTF_H
 
-#include "G3D/platform.h"
+#include "../../../../dep/g3dlite/include/G3D/platform.h"
 #include <stdio.h>
 #include <cstdarg>
-#include "G3D/format.h"
+#include "../../../../dep/g3dlite/include/G3D/format.h"
 #include <string>
 
 namespace G3D {

@@ -12,8 +12,8 @@
 #ifndef G3D_BINARYFORMAT_H
 #define G3D_BINARYFORMAT_H
 
-#include "G3D/platform.h"
-#include "G3D/g3dmath.h"
+#include "../../../../dep/g3dlite/include/G3D/platform.h"
+#include "../../../../dep/g3dlite/include/G3D/g3dmath.h"
 
 namespace G3D {
 

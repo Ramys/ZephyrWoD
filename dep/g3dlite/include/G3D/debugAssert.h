@@ -27,7 +27,7 @@
 #define G3D_DEBUGASSERT_H
 
 #include <string>
-#include "G3D/platform.h"
+#include "../../../../dep/g3dlite/include/G3D/platform.h"
 
 #include <cstdlib>
 

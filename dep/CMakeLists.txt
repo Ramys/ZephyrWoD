@@ -31,8 +31,9 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
   endif()
 endif()
 
-if(SERVERS OR TOOLS)
   add_subdirectory(g3dlite)
+  
+if(SERVERS OR TOOLS)
   add_subdirectory(recastnavigation)
 endif()
 
