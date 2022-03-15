@@ -18,7 +18,6 @@
 #ifndef __GITREVISION_H__
 #define __GITREVISION_H__
 
-#include "Common.h"
 #include "Define.h"
 
 namespace GitRevision
@@ -32,13 +31,11 @@ namespace GitRevision
      char const* GetBuildDirectory();
      char const* GetSourceDirectory();
      char const* GetMySQLExecutable();
-     char const* GetFullDatabase();
      char const* GetFullVersion();
      char const* GetCompanyNameStr();
      char const* GetLegalCopyrightStr();
      char const* GetFileVersionStr();
      char const* GetProductVersionStr();
-     char const* GetPackageName();
 }
 
 #endif

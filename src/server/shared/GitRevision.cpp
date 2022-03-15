@@ -16,7 +16,6 @@
  */
 
 #include "GitRevision.h"
-#include "CompilerDefs.h"
 #include "revision.h"
 
 char const* GitRevision::GetHash()
@@ -64,34 +63,30 @@ char const* GitRevision::GetMySQLExecutable()
     return _MYSQL_EXECUTABLE;
 }
 
-char const* GitRevision::GetFullDatabase()
-{
-    return _FULL_DATABASE;
-}
-#if PLATFORM == PLATFORM_WINDOWS
+#if TRINITY_PLATFORM == TRINITY_PLATFORM_WINDOWS
 #  ifdef _WIN64
-#    define PLATFORM_STR "Win64"
+#    define TRINITY_PLATFORM_STR "Win64"
 #  else
-#    define PLATFORM_STR "Win32"
+#    define TRINITY_PLATFORM_STR "Win32"
 #  endif
-#elif PLATFORM == PLATFORM_APPLE
-#  define PLATFORM_STR "MacOSX"
-#elif PLATFORM == PLATFORM_INTEL
-#  define PLATFORM_STR "Intel"
-#else // PLATFORM_UNIX
-#  define PLATFORM_STR "Unix"
+#elif TRINITY_PLATFORM == TRINITY_PLATFORM_APPLE
+#  define TRINITY_PLATFORM_STR "MacOSX"
+#elif TRINITY_PLATFORM == TRINITY_PLATFORM_INTEL
+#  define TRINITY_PLATFORM_STR "Intel"
+#else // TRINITY_PLATFORM_UNIX
+#  define TRINITY_PLATFORM_STR "Unix"
 #endif
 
-#ifndef API_USE_DYNAMIC_LINKING
-#  define LINKAGE_TYPE_STR "Static"
+#ifndef TRINITY_API_USE_DYNAMIC_LINKING
+#  define TRINITY_LINKAGE_TYPE_STR "Static"
 #else
-#  define LINKAGE_TYPE_STR "Dynamic"
+#  define TRINITY_LINKAGE_TYPE_STR "Dynamic"
 #endif
 
 char const* GitRevision::GetFullVersion()
 {
-  return "< ZephyrWoD > rev. " VER_PRODUCTVERSION_STR
-    "(" PLATFORM_STR ", " _BUILD_DIRECTIVE ", " LINKAGE_TYPE_STR ")";
+    return "< DekkCore > rev. " VER_PRODUCTVERSION_STR
+        "Project Zereth (" TRINITY_PLATFORM_STR ", " _BUILD_DIRECTIVE ", " TRINITY_LINKAGE_TYPE_STR ")";
 }
 
 char const* GitRevision::GetCompanyNameStr()
