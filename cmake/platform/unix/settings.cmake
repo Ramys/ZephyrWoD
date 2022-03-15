@@ -1,28 +1,7 @@
-# Package overloads - Linux
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-  if (NOT NOJEM)
-    set(JEMALLOC_LIBRARY "jemalloc")
-  endif()
-endif()
-
 # set default configuration directory
-if( NOT CONF_DIR )
-  if( CMAKE_INSTALL_PREFIX MATCHES "/usr/local" )
-    set(CONF_DIR ${CMAKE_INSTALL_PREFIX}/etc/firestorm)
-  else()
-    set(CONF_DIR ${CMAKE_INSTALL_PREFIX}/etc)
-  endif()
+if(NOT CONF_DIR)
+  set(CONF_DIR ${CMAKE_INSTALL_PREFIX}/etc CACHE PATH "Configuration directory")
   message(STATUS "UNIX: Using default configuration directory")
-endif()
-
-# set default library directory
-if( NOT LIBSDIR )
-  if( CMAKE_INSTALL_PREFIX MATCHES "/usr/local" )
-    set(LIBSDIR ${CMAKE_INSTALL_PREFIX}/lib/firestorm)
-  else()
-    set(LIBSDIR ${CMAKE_INSTALL_PREFIX}/lib)
-  endif()
-  message(STATUS "UNIX: Using default library directory")
 endif()
 
 # configure uninstaller
@@ -39,12 +18,28 @@ add_custom_target(uninstall
 )
 message(STATUS "UNIX: Created uninstall target")
 
+if(USE_LD_GOLD)
+  execute_process(COMMAND ${CMAKE_C_COMPILER} -fuse-ld=gold -Wl,--version ERROR_QUIET OUTPUT_VARIABLE LD_VERSION)
+  if("${LD_VERSION}" MATCHES "GNU gold")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=gold")
+    message(STATUS "UNIX: Using GNU gold linker")
+  else()
+    message(WARNING "UNIX: GNU gold linker isn't available, using the default system linker")
+  endif()
+else()
+  message(STATUS "UNIX: Using default system linker")
+endif()
+
+message(STATUS "UNIX: Detected compiler: ${CMAKE_C_COMPILER}")
 if(CMAKE_C_COMPILER MATCHES "gcc" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
   include(${CMAKE_SOURCE_DIR}/cmake/compiler/gcc/settings.cmake)
 elseif(CMAKE_C_COMPILER MATCHES "icc")
   include(${CMAKE_SOURCE_DIR}/cmake/compiler/icc/settings.cmake)
-elseif(CMAKE_C_COMPILER MATCHES "clang" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+elseif(CMAKE_C_COMPILER MATCHES "clang" OR CMAKE_C_COMPILER_ID MATCHES "Clang")
   include(${CMAKE_SOURCE_DIR}/cmake/compiler/clang/settings.cmake)
 else()
-  add_definitions(-D_BUILD_DIRECTIVE='"${CMAKE_BUILD_TYPE}"')
+  target_compile_definitions(trinity-compile-option-interface
+    INTERFACE
+      -D_BUILD_DIRECTIVE="${CMAKE_BUILD_TYPE}")
 endif()

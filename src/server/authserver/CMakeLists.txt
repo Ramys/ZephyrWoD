@@ -79,7 +79,7 @@ add_executable(authserver
   ${authserver_PCH_SRC}
 )
 
-add_dependencies(authserver revision_data.h)
+add_dependencies(authserver revision.h)
 
 if( NOT WIN32 )
   set_target_properties(authserver PROPERTIES

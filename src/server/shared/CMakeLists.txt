@@ -111,7 +111,7 @@ target_link_libraries(shared
   ${ACE_LIBRARY}
 )
 
-add_dependencies(shared revision_data.h)
+add_dependencies(shared revision.h)
 
 # Generate precompiled header
 if (USE_COREPCH)

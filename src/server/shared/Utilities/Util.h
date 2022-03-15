@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <sstream>
 #include <functional>
+#include <ace/INET_Addr.h>
 
  void init_sfmt();
 
