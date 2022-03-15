@@ -5,12 +5,17 @@ Private Server Source
 Based on the Firestorm WoD leak, TrinityCore project, JadeCore (5.0.5), Garrosh (5.4.X).
 
 Links where i got this from:
+- coolzoom https://github.com/coolzoom/w6x-FirestormWoD
+- WoWOriginProjects https://github.com/WoWOriginProjects/WOPCore-6.2.3-FirestormWOD
+- Undergarun https://github.com/Undergarun/FirestormWoD
 
+Mirror with commit history:
+https://github.com/fluxurion/w6x-FirestormWoD
 
 Important updates:
-- updated g3dlite to more recent version
-- updated cryptography to more recent version
-- updated cmake stuffs like findopenssl macro, min cmake version..
+- updated g3dlite, cryptography, ace ..
+- updated cmake stuffs like macros, settings ..
+- replace authserver completely
 
 
 Successfully Built in Windows with:
