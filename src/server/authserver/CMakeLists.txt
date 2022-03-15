@@ -1,5 +1,4 @@
-# Copyright (C) 2011-2016 Project SkyFire <http://www.projectskyfire.org/>
-# Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
+# Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
 #
 # This file is free software; as a special exception the author gives
 # unlimited permission to copy and/or distribute it, with or without
@@ -11,18 +10,11 @@
 
 ########### authserver ###############
 
-file(GLOB_RECURSE sources_Authentication Authentication/*.cpp Authentication/*.h)
-file(GLOB_RECURSE sources_PrecompiledHeaders PrecompiledHeaders/*.cpp PrecompiledHeaders/*.h)
-file(GLOB_RECURSE sources_Realms Realms/*.cpp Realms/*.h)
-file(GLOB_RECURSE sources_Server Server/*.cpp Server/*.h)
-file(GLOB sources_Localdir *.cpp *.h)
-
-source_group(CMake FILES CMakeLists.txt)
-source_group(Authentication FILES ${sources_Authentication})
-source_group(PrecompiledHeaders FILES ${sources_PrecompiledHeaders})
-source_group(Realms FILES ${sources_Realms})
-source_group(Server FILES ${sources_Server})
-source_group(localdir FILES ${sources_Localdir})
+file(GLOB_RECURSE sources_authentication Authentication/*.cpp Authentication/*.h)
+file(GLOB_RECURSE sources_realms Realms/*.cpp Realms/*.h)
+file(GLOB_RECURSE sources_server Server/*.cpp Server/*.h)
+file(GLOB_RECURSE sources_bnet Bnet2/*.cpp Bnet2/*.hpp)
+file(GLOB sources_localdir *.cpp *.h)
 
 if (USE_COREPCH)
   set(authserver_PCH_HDR PrecompiledHeaders/authPCH.h)
@@ -31,27 +23,45 @@ endif()
 
 set(authserver_SRCS
   ${authserver_SRCS}
-  ${sources_Authentication}
-  ${sources_Realms}
-  ${sources_Server}
-  ${sources_Localdir}
+  ${sources_authentication}
+  ${sources_realms}
+  ${sources_server}
+  ${sources_bnet}
+  ${sources_localdir}
+)
+
+MACRO( auto_group ProjectDirectory ProjectSources )
+	SET( DirectorySources "${ProjectSources}" )
+	FOREACH( Source ${DirectorySources} )
+		if ("${Source}" MATCHES "(/)+")
+			STRING( REGEX REPLACE "${ProjectDirectory}" "" RelativePath "${Source}" )
+			STRING( REGEX REPLACE "[\\\\/][^\\\\/]*$" "" RelativePath "${RelativePath}" )
+			STRING( REGEX REPLACE "^[\\\\/]" "" RelativePath "${RelativePath}" )
+			STRING( REGEX REPLACE "/" "\\\\\\\\" RelativePath "${RelativePath}" )
+			SOURCE_GROUP( "${RelativePath}" FILES ${Source} )
+		else()
+			SOURCE_GROUP( "" FILES ${Source} )
+		endif()
+	ENDFOREACH( Source )
+ENDMACRO( auto_group )
+
+auto_group("${CMAKE_CURRENT_SOURCE_DIR}" "${authserver_SRCS}")
+
+set(authserver_SRCS
+  ${authserver_SRCS}
 )
 
 if( WIN32 )
-  set(authserver_SRCS
+set(authserver_SRCS
     ${authserver_SRCS}
-    ${sources_windows_Debugging}
-  )
-  if ( MSVC )
-    set(authserver_SRCS
-      ${authserver_SRCS}
-      authserver.rc
-    )
-  endif ()
+    ${sources_Debugging}
+    authserver.rc
+)
 endif()
 
 include_directories(
   ${CMAKE_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/dep/g3dlite/include
   ${CMAKE_SOURCE_DIR}/src/server/shared
   ${CMAKE_SOURCE_DIR}/src/server/shared/Database
   ${CMAKE_SOURCE_DIR}/src/server/shared/Debugging
@@ -61,6 +71,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/server/shared/Logging
   ${CMAKE_SOURCE_DIR}/src/server/shared/Threading
   ${CMAKE_SOURCE_DIR}/src/server/shared/Utilities
+  ${CMAKE_SOURCE_DIR}/src/server/shared/Reporting
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/Authentication
   ${CMAKE_CURRENT_SOURCE_DIR}/Realms
@@ -68,32 +79,37 @@ include_directories(
   ${ACE_INCLUDE_DIR}
   ${MYSQL_INCLUDE_DIR}
   ${OPENSSL_INCLUDE_DIR}
+  ${EASYJSON_INCLUDE_DIR}
+  ${CURL_INCLUDE_DIR}
+  ${MSFRAMEWORK_INCLUDE_DIR}
 )
-
-if (Boost_FOUND)
-  include_directories(${Boost_INCLUDE_DIRS})
-endif()
 
 add_executable(authserver
   ${authserver_SRCS}
   ${authserver_PCH_SRC}
 )
+set_property(TARGET authserver PROPERTY FOLDER "server")
 
 add_dependencies(authserver revision.h)
 
+if( UNIX AND NOT NOJEM AND NOT APPLE )
+  set(authserver_LINK_FLAGS "-pthread")
+endif()
+
 if( NOT WIN32 )
-  set_target_properties(authserver PROPERTIES
-    COMPILE_DEFINITIONS _TRINITY_REALM_CONFIG="${CONF_DIR}/authserver.conf"
-  )
+   set_target_properties(authserver PROPERTIES
+    LINK_FLAGS "${authserver_LINK_FLAGS}" COMPILE_DEFINITIONS _TRINITY_REALM_CONFIG="${CONF_DIR}/authserver.conf"
+   )
 endif()
 
 target_link_libraries(authserver
   shared
   ${MYSQL_LIBRARY}
   ${OPENSSL_LIBRARIES}
-  ${CMAKE_THREAD_LIBS_INIT}
-  ${ACE_LIBRARY}
-  ${Boost_LIBRARIES}
+  ${OPENSSL_EXTRA_LIBRARIES}
+  ${OSX_LIBS}
+  ${CURL_LIBRARIES}
+  ${MSFRAMEWORK_LIBRARIES}
 )
 
 if( WIN32 )

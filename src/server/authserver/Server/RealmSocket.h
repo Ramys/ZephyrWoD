@@ -1,11 +1,10 @@
 /*
- * Copyright (C) 2011-2016 Project SkyFire <http://www.projectskyfire.org/>
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2016 MaNGOS <http://getmangos.com/>
+ * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2005-2010 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
+ * Free Software Foundation; either version 2 of the License, or (at your
  * option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -17,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SF_REALMSOCKET_H
-#define SF_REALMSOCKET_H
+#ifndef __REALMSOCKET_H__
+#define __REALMSOCKET_H__
 
 #include <ace/Synch_Traits.h>
 #include <ace/Svc_Handler.h>
@@ -60,7 +59,7 @@ public:
 
     virtual int open(void *);
 
-    virtual int close(u_long);
+    virtual int close(int);
 
     virtual int handle_input(ACE_HANDLE = ACE_INVALID_HANDLE);
     virtual int handle_output(ACE_HANDLE = ACE_INVALID_HANDLE);

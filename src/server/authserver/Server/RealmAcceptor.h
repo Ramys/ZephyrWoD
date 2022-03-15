@@ -1,11 +1,10 @@
 /*
- * Copyright (C) 2011-2016 Project SkyFire <http://www.projectskyfire.org/>
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2016 MaNGOS <http://getmangos.com/>
+ * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2005-2010 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
+ * Free Software Foundation; either version 2 of the License, or (at your
  * option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -17,14 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SF_REALMACCEPTOR_H
-#define SF_REALMACCEPTOR_H
+#ifndef __REALMACCEPTOR_H__
+#define __REALMACCEPTOR_H__
 
 #include <ace/Acceptor.h>
 #include <ace/SOCK_Acceptor.h>
 
 #include "RealmSocket.h"
 #include "AuthSocket.h"
+#include "Bnet2/Session.hpp"
 
 class RealmAcceptor : public ACE_Acceptor<RealmSocket, ACE_SOCK_Acceptor>
 {
@@ -43,7 +43,7 @@ protected:
             ACE_NEW_RETURN(sh, RealmSocket, -1);
 
         sh->reactor(reactor());
-        sh->set_session(new AuthSocket(*sh));
+        sh->set_session(new BNet2::Session(*sh));
         return 0;
     }
 

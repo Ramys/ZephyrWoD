@@ -1,11 +1,10 @@
 /*
- * Copyright (C) 2011-2016 Project SkyFire <http://www.projectskyfire.org/>
- * Copyright (C) 2008-2016 TrinityCore <http://www.trinitycore.org/>
- * Copyright (C) 2005-2016 MaNGOS <http://getmangos.com/>
+ * Copyright (C) 2008-2012 TrinityCore <http://www.trinitycore.org/>
+ * Copyright (C) 2005-2010 MaNGOS <http://getmangos.com/>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
- * Free Software Foundation; either version 3 of the License, or (at your
+ * Free Software Foundation; either version 2 of the License, or (at your
  * option) any later version.
  *
  * This program is distributed in the hope that it will be useful, but WITHOUT
@@ -24,7 +23,11 @@
 #include "RealmSocket.h"
 #include "Log.h"
 
-RealmSocket::Session::Session(void) { }
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
+RealmSocket::Session::Session(void) {}
 
 RealmSocket::Session::~Session(void) { }
 
@@ -46,7 +49,8 @@ RealmSocket::~RealmSocket(void)
     // delete RealmSocketObject must never be called from our code.
     closing_ = true;
 
-    delete session_;
+    if (session_)
+        delete session_;
 
     peer().close();
 }
@@ -77,7 +81,7 @@ int RealmSocket::open(void * arg)
     return 0;
 }
 
-int RealmSocket::close(u_long)
+int RealmSocket::close(int)
 {
     shutdown();
 
@@ -136,11 +140,7 @@ ssize_t RealmSocket::noblk_send(ACE_Message_Block &message_block)
         return -1;
 
     // Try to send the message directly.
-#ifdef MSG_NOSIGNAL
     ssize_t n = peer().send(message_block.rd_ptr(), len, MSG_NOSIGNAL);
-#else
-    ssize_t n = peer().send(message_block.rd_ptr(), len);
-#endif // MSG_NOSIGNAL
 
     if (n < 0)
     {
@@ -286,7 +286,8 @@ int RealmSocket::handle_input(ACE_HANDLE)
 
 void RealmSocket::set_session(Session* session)
 {
-    delete session_;
+    if (session_ != NULL)
+        delete session_;
 
     session_ = session;
 }
