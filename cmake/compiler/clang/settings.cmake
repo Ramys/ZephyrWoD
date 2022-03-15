@@ -31,13 +31,6 @@ int main()
 }
 " CLANG_HAVE_PROPER_CHARCONV)
 
-if (NOT CLANG_HAVE_PROPER_CHARCONV)
-  message(STATUS "Clang: Detected from_chars bug for 64-bit integers, workaround enabled")
-  target_compile_definitions(trinity-compile-option-interface
-  INTERFACE
-    -DTRINITY_NEED_CHARCONV_WORKAROUND)
-endif()
-
 if(WITH_WARNINGS)
   target_compile_options(trinity-warning-interface
     INTERFACE
